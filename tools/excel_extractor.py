@@ -77,7 +77,7 @@ class ExcelExtractorTool(Tool):
                 temp_file_path = temp_file.name
 
             try:
-                is_modern_excel = is_zipfile(temp_file_path)
+                is_modern_excel = self._is_ooxml_excel(temp_file_path)
                 logger.info(
                     "[excel_extractor] detected excel format",
                     extra={"is_modern_excel": is_modern_excel},
@@ -176,6 +176,17 @@ class ExcelExtractorTool(Tool):
                 lines.append("No textual content in this sheet.")
             lines.append("")  # blank line between sheets
         return "\n".join(lines).strip()
+
+    def _is_ooxml_excel(self, file_path: str) -> bool:
+        if not is_zipfile(file_path):
+            return False
+        try:
+            with ZipFile(file_path) as zipped_file:
+                zipped_file.getinfo("[Content_Types].xml")
+                zipped_file.getinfo("xl/workbook.xml")
+                return True
+        except Exception:
+            return False
 
     def _extract_text_xls(self, file_path: str) -> str:
         workbook = xlrd.open_workbook(file_path, formatting_info=False)
