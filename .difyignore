@@ -7,3 +7,7 @@ __pycache__
 .venv
 
 doc
+
+tests
+
+AGENTS.md

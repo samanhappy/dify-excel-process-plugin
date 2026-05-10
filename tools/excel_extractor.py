@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from zipfile import ZipFile, is_zipfile
 import logging
 import tempfile
@@ -139,8 +139,9 @@ class ExcelExtractorTool(Tool):
         app_id: Optional[str] = None,
         message_id: Optional[str] = None,
     ) -> list[ToolParameter]:
+        tool_parameter_cls = cast(Any, ToolParameter)
         return [
-            ToolParameter(
+            tool_parameter_cls(
                 name="excel_content",
                 label=I18nObject(en_US="Excel Content", zh_Hans="Excel 内容"),
                 human_description=I18nObject(
@@ -164,13 +165,10 @@ class ExcelExtractorTool(Tool):
             lines.append(f"# Sheet: {sheet.title}")
             has_content = False
             for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-                formatted_cells = [
-                    self._format_cell_value(cell) for cell in row if cell not in (None, "")
-                ]
-                if not formatted_cells:
+                row_text = self._render_row_text(row)
+                if not row_text:
                     continue
                 has_content = True
-                row_text = " | ".join(formatted_cells)
                 lines.append(f"Row {row_idx}: {row_text}")
             if not has_content:
                 lines.append("No textual content in this sheet.")
@@ -186,18 +184,29 @@ class ExcelExtractorTool(Tool):
             has_content = False
             for row_idx in range(sheet.nrows):
                 row = sheet.row_values(row_idx)
-                formatted_cells = [
-                    self._format_cell_value(cell) for cell in row if cell not in ("", None)
-                ]
-                if not formatted_cells:
+                row_text = self._render_row_text(row)
+                if not row_text:
                     continue
                 has_content = True
-                row_text = " | ".join(formatted_cells)
                 lines.append(f"Row {row_idx + 1}: {row_text}")
             if not has_content:
                 lines.append("No textual content in this sheet.")
             lines.append("")
         return "\n".join(lines).strip()
+
+    def _render_row_text(self, row: Sequence[Any]) -> str:
+        formatted_cells = [
+            "" if cell in (None, "") else self._format_cell_value(cell) for cell in row
+        ]
+        last_non_empty_index = -1
+        for idx, cell in enumerate(formatted_cells):
+            if cell != "":
+                last_non_empty_index = idx
+
+        if last_non_empty_index == -1:
+            return ""
+
+        return " | ".join(formatted_cells[: last_non_empty_index + 1])
 
     def _extract_images_xlsx(self, file_path: str) -> Generator[tuple[bytes, str], None, None]:
         with ZipFile(file_path) as zipped_file:

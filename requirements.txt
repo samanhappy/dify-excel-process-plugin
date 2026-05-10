@@ -2,3 +2,4 @@ dify_plugin>=0.1.0,<0.2.0
 openpyxl>=3.1,<4.0
 xlrd==1.2.0
 olefile>=0.47
+pytest>=9.0,<10.0
