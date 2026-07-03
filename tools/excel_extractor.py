@@ -77,7 +77,7 @@ class ExcelExtractorTool(Tool):
                 temp_file_path = temp_file.name
 
             try:
-                is_modern_excel = is_zipfile(temp_file_path) and not olefile.isOleFile(
+                is_modern_excel = not olefile.isOleFile(temp_file_path) and is_zipfile(
                     temp_file_path
                 )
                 logger.info(
