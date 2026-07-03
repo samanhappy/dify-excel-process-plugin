@@ -18,9 +18,6 @@ jobs:
     name: Package plugin and open Marketplace PR
     runs-on: ubuntu-latest
 
-    env:
-      DIFY_PLUGIN_CLI: ${{ runner.temp }}/bin/dify-plugin-linux-amd64
-
     steps:
       - name: Checkout plugin source
         uses: actions/checkout@v4
@@ -106,11 +103,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p "$(dirname "${DIFY_PLUGIN_CLI}")"
+          cli_path="${RUNNER_TEMP}/bin/dify-plugin-linux-amd64"
+          mkdir -p "$(dirname "${cli_path}")"
           curl -fsSL \
             https://github.com/langgenius/dify-plugin-daemon/releases/latest/download/dify-plugin-linux-amd64 \
-            -o "${DIFY_PLUGIN_CLI}"
-          chmod +x "${DIFY_PLUGIN_CLI}"
+            -o "${cli_path}"
+          chmod +x "${cli_path}"
+          echo "DIFY_PLUGIN_CLI=${cli_path}" >> "${GITHUB_ENV}"
 
       - name: Package plugin
         shell: bash
