@@ -1,0 +1,200 @@
+name: Publish Dify Plugin
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-dify-plugin-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Package plugin and open Marketplace PR
+    runs-on: ubuntu-latest
+
+    env:
+      DIFY_PLUGIN_CLI: ${{ runner.temp }}/bin/dify-plugin-linux-amd64
+
+    steps:
+      - name: Checkout plugin source
+        uses: actions/checkout@v4
+
+      - name: Validate publishing token
+        env:
+          PLUGIN_ACTION_TOKEN: ${{ secrets.PLUGIN_ACTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PLUGIN_ACTION_TOKEN}" ]]; then
+            echo "Missing required repository secret: PLUGIN_ACTION"
+            exit 1
+          fi
+
+      - name: Read plugin metadata
+        id: plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          manifest = Path("manifest.yaml")
+          values = {}
+
+          for line in manifest.read_text(encoding="utf-8").splitlines():
+              if not line or line[0].isspace() or ":" not in line:
+                  continue
+              key, value = line.split(":", 1)
+              values[key.strip()] = value.strip().strip("\"'")
+
+          required = ("author", "name", "version")
+          missing = [key for key in required if not values.get(key)]
+          if missing:
+              print(f"manifest.yaml is missing required field(s): {', '.join(missing)}", file=sys.stderr)
+              sys.exit(1)
+
+          version = values["version"]
+          if not re.match(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$", version):
+              print(f"manifest.yaml version must be semantic, got: {version}", file=sys.stderr)
+              sys.exit(1)
+
+          plugin_name = values["name"]
+          author = values["author"]
+          branch_name = f"bump-{plugin_name}-plugin-{version}"
+          package_name = f"{plugin_name}-{version}.difypkg"
+          target_dir = f"{author}/{plugin_name}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for key, value in {
+                  "author": author,
+                  "plugin_name": plugin_name,
+                  "version": version,
+                  "branch_name": branch_name,
+                  "package_name": package_name,
+                  "target_dir": target_dir,
+              }.items():
+                  output.write(f"{key}={value}\n")
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        run: python -m pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Download Dify Plugin CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$(dirname "${DIFY_PLUGIN_CLI}")"
+          curl -fsSL \
+            https://github.com/langgenius/dify-plugin-daemon/releases/latest/download/dify-plugin-linux-amd64 \
+            -o "${DIFY_PLUGIN_CLI}"
+          chmod +x "${DIFY_PLUGIN_CLI}"
+
+      - name: Package plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          "${DIFY_PLUGIN_CLI}" plugin package . -o "${{ steps.plugin.outputs.package_name }}"
+          test -s "${{ steps.plugin.outputs.package_name }}"
+
+      - name: Checkout Marketplace fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.plugin.outputs.author }}/dify-plugins
+          path: dify-plugins
+          token: ${{ secrets.PLUGIN_ACTION }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Commit package to Marketplace fork
+        id: marketplace
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_name="${{ steps.plugin.outputs.package_name }}"
+          target_dir="${{ steps.plugin.outputs.target_dir }}"
+          branch_name="${{ steps.plugin.outputs.branch_name }}"
+
+          cd dify-plugins
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${branch_name}" origin/main
+
+          mkdir -p "${target_dir}"
+          cp "../${package_name}" "${target_dir}/${package_name}"
+
+          git add "${target_dir}/${package_name}"
+
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "No package changes to publish."
+            exit 0
+          fi
+
+          git commit -m "bump ${{ steps.plugin.outputs.plugin_name }} plugin to version ${{ steps.plugin.outputs.version }}"
+          git push --force origin "${branch_name}"
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Open Marketplace PR
+        if: steps.marketplace.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PLUGIN_ACTION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          author="${{ steps.plugin.outputs.author }}"
+          plugin_name="${{ steps.plugin.outputs.plugin_name }}"
+          version="${{ steps.plugin.outputs.version }}"
+          branch_name="${{ steps.plugin.outputs.branch_name }}"
+          package_name="${{ steps.plugin.outputs.package_name }}"
+          head_ref="${author}:${branch_name}"
+          title="bump ${plugin_name} plugin to version ${version}"
+          body="bump ${plugin_name} plugin package to version ${version}
+
+          Changes:
+          - Added ${package_name}"
+
+          existing_pr="$(gh api \
+            --method GET \
+            /repos/langgenius/dify-plugins/pulls \
+            -f state=open \
+            -f base=main \
+            -f head="${head_ref}" \
+            --jq '.[0].html_url // empty')"
+
+          if [[ -n "${existing_pr}" ]]; then
+            echo "Marketplace PR already exists: ${existing_pr}"
+            exit 0
+          fi
+
+          gh pr create \
+            --repo langgenius/dify-plugins \
+            --head "${head_ref}" \
+            --base main \
+            --title "${title}" \
+            --body "${body}"

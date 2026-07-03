@@ -33,3 +33,20 @@ Created by [samanhappy](https://github.com/samanhappy)
 ## Repository
 
 https://github.com/samanhappy/dify-excel-process-plugin
+
+## Publishing
+
+This repository includes a GitHub Actions workflow for publishing Marketplace
+updates through `langgenius/dify-plugins`.
+
+Before the first automated release:
+
+- Fork `langgenius/dify-plugins` to `samanhappy/dify-plugins`.
+- Add a repository secret named `PLUGIN_ACTION` with permission to push to the
+  fork and create pull requests against `langgenius/dify-plugins`.
+- Confirm `manifest.yaml` has the intended `author`, `name`, and `version`.
+
+To publish a new version, update `manifest.yaml`, push to `main`, and wait for
+the `Publish Dify Plugin` workflow. The workflow runs tests, packages
+`excel_process-<version>.difypkg`, pushes it to
+`samanhappy/dify-plugins`, and opens the Marketplace pull request.
