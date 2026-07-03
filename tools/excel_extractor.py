@@ -213,7 +213,7 @@ class ExcelExtractorTool(Tool):
     def _extract_images_xlsx(self, file_path: str) -> Generator[tuple[bytes, str], None, None]:
         with ZipFile(file_path) as zipped_file:
             for member in zipped_file.namelist():
-                if not member.startswith("xl/media/"):
+                if not member.startswith("xl/media/") or member.endswith("/"):
                     continue
                 extension = os.path.splitext(member)[1].lower() or ".png"
                 with zipped_file.open(member) as image_file:
