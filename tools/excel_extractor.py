@@ -270,6 +270,25 @@ class ExcelExtractorTool(Tool):
                 if not entry:
                     continue
                 stream_name = entry[0].upper()
+                if stream_name == "ETCELLIMAGEDATA":
+                    import io
+                    stream = ole.openstream(entry)
+                    try:
+                        data = stream.read()
+                    finally:
+                        stream.close()
+                    data_io = io.BytesIO(data)
+                    if is_zipfile(data_io):
+                        data_io.seek(0)
+                        with ZipFile(data_io) as zipped_file:
+                            for member in zipped_file.namelist():
+                                if not member.startswith("xl/media/") or member.endswith("/"):
+                                    continue
+                                extension = os.path.splitext(member)[1].lower() or ".png"
+                                with zipped_file.open(member) as image_file:
+                                    yield image_file.read(), extension
+                    continue
+
                 if not stream_name.startswith("MBD"):
                     continue
                 stream = ole.openstream(entry)
